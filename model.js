@@ -18,7 +18,7 @@ var presentation_order = 0;
 var display_clock = 0;
 var presentation_frame_number = 0;
 
-var nb_frames_to_display = 100;
+var decoding_finished = false;
 
 function WallClockTime() {
 	return Date.now();
@@ -96,6 +96,7 @@ function update_ref_buffers ( idx, refresh_frame_flags ) {
 
 function decode_single(decode_frame_period) {
     if (bitstream.frame_index >= bitstream.frames.length) {
+    	decoding_finished = true;
     	return;
     } else {
 		var target_idx;
@@ -190,7 +191,7 @@ function display_single(display_period, _start_time) {
 		console.log("End Display Time: "+display_clock);
 		setImmediate(display_single, display_period);
     } else {
-    	if (presentation_frame_number < nb_frames_to_display) {
+    	if (!decoding_finished) {
 			setImmediate(display_single, display_period, next.start_time);
     	}
     }
