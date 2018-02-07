@@ -13,9 +13,17 @@ var SHOW_EXISTING_FRAME = 1;
 var SHOW_FRAME = 2;
 var NO_SHOW_FRAME = 3;
 
+var DECODE_DURATION = +process.argv[3] || 30;
+var DISPLAY_DURATION = +process.argv[4] || 30;
+var INITIAL_DISPLAY_DELAY = +process.argv[5] || 100;
+
 var decode_clock;
-var presentation_order = 0;
 var display_clock = 0;
+
+// presentation number of the frame being decoded
+var presentation_order = 0;
+
+// current frame being presented
 var presentation_frame_number = 0;
 
 var decoding_finished = false;
@@ -66,7 +74,6 @@ function get_buffer() {
 
 function decode_frame ( buffer_idx ) {
     // Decodes one frame into BufferPool[ buffer_idx ].
-	console.log("Decoding frame into buffer "+buffer_idx);
 	log();
 	return bitstream.frames[bitstream.frame_index].refresh_frame_flags;
 }
@@ -108,17 +115,15 @@ function decode_single(decode_frame_period) {
 
 		   	// Make sure buffer is not re-assigned during decode.
 		   	BufferPool[ cfbi ].decoder_ref_count++;
+		   	BufferPool[ cfbi ].bitstream_frame = frame;
 
 			var refresh_frame_flags = decode_frame(cfbi);
 
 			// Frame decoded, update the reference buffers.
 		    target_idx = cfbi;
-			update_ref_buffers ( cfbi, refresh_frame_flags);
+			update_ref_buffers(cfbi, refresh_frame_flags);
 		} else {
 		    target_idx = VBI[ frame.show_existing_frame ];
-		    if (target_idx === undefined) {
-			    console.log("show_existing_frame: "+frame.show_existing_frame);
-		    }
 		}
 
 		// Mark buffer with presentation frame order if frame is
@@ -128,7 +133,7 @@ function decode_single(decode_frame_period) {
 		    // Note: one frame may be displayed multiple times.
 			idx2 = BufferPool[ target_idx ].player_ref_count;
 		    BufferPool[ target_idx ].presentation_frame_number[ idx2 ] = presentation_order;
-		    BufferPool[ target_idx ].player_ref_count++;
+		   	BufferPool[ target_idx ].player_ref_count++;
 		    presentation_order++;
 		}
 
@@ -136,7 +141,7 @@ function decode_single(decode_frame_period) {
 		// i.e. a SHOW_FRAME or NO_SHOW_FRAME.
 		if ( frame_type != SHOW_EXISTING_FRAME ) {
 		    decode_clock += decode_frame_period;
-		    frame.end_decode_time = decode_clock;
+		    BufferPool[ cfbi ].bitstream_frame.decode_end_time = decode_clock;
 
 			// Decoder no longer needs the buffer to decode frame into.
 			BufferPool[ cfbi ].decoder_ref_count--;
@@ -149,7 +154,6 @@ function decode_single(decode_frame_period) {
 }
 
 function decode_process( decode_frame_period ) {
-	console.log("Decoding process starting");
     // Initialize the decode clock to -Pdec.
     // Should be synchronized with initialization of the Presentation clock.
 	decode_clock = -1 * decode_frame_period;
@@ -178,27 +182,28 @@ function get_next_presentation_frame_buffer( presentation_idx , _start_time) {
 }
 
 function DisplayFrame(idx) {
-	console.log("Frame from buffer "+idx+" displaying");
+	log();
 }
 
 function display_single(display_period, _start_time) {
     var next = get_next_presentation_frame_buffer( presentation_frame_number, _start_time);
     if ( next.idx !== -1 ) {
+		BufferPool[ next.idx ].bitstream_frame.display_start_time = display_clock;
         DisplayFrame( next.idx );
         BufferPool[ next.idx ].player_ref_count--;
         presentation_frame_number++;
 		display_clock += display_period;
-		console.log("End Display Time: "+display_clock);
 		setImmediate(display_single, display_period);
     } else {
     	if (!decoding_finished) {
 			setImmediate(display_single, display_period, next.start_time);
+    	} else {
+    		final_check();
     	}
     }
 }
 
 function display_process (display_period, initial_display_delay) {
-	console.log("Display process starting");
     // Start the presentation clock at the specified time offset.
     // Should be synchronized with initialization of the Decode clock.
     display_clock = initial_display_delay;
@@ -207,8 +212,15 @@ function display_process (display_period, initial_display_delay) {
 }
 
 initialize_buffer_pool();
-decode_process(30);
-display_process(30, 1000);
+decode_process(DECODE_DURATION);
+display_process(DISPLAY_DURATION, INITIAL_DISPLAY_DELAY);
 
 
+function final_check() {
+	console.log("show_existing_frame", "show_frame", "decode_end_time", "display_start_time");
+	for (bitstream.frame_index = 0; bitstream.frame_index < bitstream.frames.length; bitstream.frame_index++) {
+		var frame = bitstream.frames[bitstream.frame_index];
+		console.log(frame.show_existing_frame, frame.show_frame, frame.decode_end_time, frame.display_start_time);
+	}
+}
 
